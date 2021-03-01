@@ -3,11 +3,90 @@
 import { resourceUsage } from 'process';
 import * as vscode from 'vscode';
 import {subscribeToDocumentChanges, EMOJI_MENTION} from './diagnostics';
+import {ExtensionContext, languages, commands, Disposable, workspace, window} from 'vscode';
+import {CodelensProvider} from './CodelensProvider';
 
 const COMMAND = 'code-actions-sample.command';
+
+let disposables: Disposable[] = [];
+
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+
+	/**
+	 * Hover
+	 */
+	const providerHover1 = vscode.languages.registerHoverProvider('plaintext', {
+		provideHover(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) {
+			return new vscode.Hover("Hi");
+		}
+	})
+
+	context.subscriptions.push(providerHover1);
+
+	/**
+	 * Completions
+	 */
+	const provided1 = vscode.languages.registerCompletionItemProvider('plaintext', {
+		provideCompletionItems(dpcument: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken, context: vscode.CompletionContext) {
+			const simpleCompletion = new vscode.CompletionItem("Hello world");
+
+			const snippetCompletion = new vscode.CompletionItem("Good part of the day");
+			snippetCompletion.insertText = new vscode.SnippetString("Good ${1|morning, afternoon, evening|}. It is ${1}, right?");
+			snippetCompletion.documentation = new vscode.MarkdownString("Insert a snippet that lets you select the _appropriate_part of the day for your greeting.");
+
+			const commitCharacterCompletion = new vscode.CompletionItem('console');
+			commitCharacterCompletion.commitCharacters = ["."];
+			commitCharacterCompletion.documentation = new vscode.MarkdownString("Press '.' to get console");
+
+			const commandCompletion = new vscode.CompletionItem('new');
+			commandCompletion.insertText = 'new ';
+			commandCompletion.command = {command: 'editor.action.triggerSuggest',title: 'Re-trigger completions...'};
+
+			return [
+				simpleCompletion,
+				snippetCompletion,
+				commitCharacterCompletion,
+				commandCompletion,
+			];
+		}
+	});
+
+	const provided2 = vscode.languages.registerCompletionItemProvider('plaintext', {
+		provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
+
+			const linePrefix = document.lineAt(position).text.substr(0, position.character);
+			console.log(linePrefix);
+			if (!linePrefix.endsWith('console')) {
+				return undefined;
+			}
+
+			return [
+				new vscode.CompletionItem("log", vscode.CompletionItemKind.Method),
+				new vscode.CompletionItem("warn", vscode.CompletionItemKind.Method),
+				new vscode.CompletionItem("error", vscode.CompletionItemKind.Method),
+			];
+		}
+	});
+
+	context.subscriptions.push(provided1, provided2);
+
+	const codelensProvider =  new CodelensProvider();
+
+	languages.registerCodeLensProvider("*", codelensProvider);
+
+	commands.registerCommand("codelens-sample.enableCodelens", () => {
+		workspace.getConfiguration("codelens-sample").update("enableCodelens", true, true);
+	});
+
+	commands.registerCommand("codelens-sample.disableCodelens", () => {
+		workspace.getConfiguration("codelens-sample").update("enableCodelens", false, true);
+	});
+
+	commands.registerCommand("codelens-sample.codelensAction", (args: any) => {
+		window.showInformationMessage('Codelens action clicked with args = ${args}');
+	});
 
 	context.subscriptions.push(vscode.languages.registerCodeActionsProvider('markdown', new Emojizer(), {
 		providedCodeActionKinds: Emojizer.providedCodeActionKinds
@@ -44,7 +123,13 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+	if (disposables) {
+		disposables.forEach(item => item.dispose());
+	}
+
+	disposables = [];
+}
 
 export class Emojizer implements vscode.CodeActionProvider {
 
@@ -82,7 +167,7 @@ export class Emojizer implements vscode.CodeActionProvider {
 	private createFix(document: vscode.TextDocument, range: vscode.Range, emoji: string): vscode.CodeAction {
 		const fix = new vscode.CodeAction('Convert to ${emoji}', vscode.CodeActionKind.QuickFix);
 		fix.edit = new vscode.WorkspaceEdit();
-		fix.edit.replace(document.uri, new vscode.Range(range.start, range.start.translate(2, 0)), emoji);
+		fix.edit.replace(document.uri, new vscode.Range(range.start, range.start.translate(0, 2)), emoji);
 		return fix;
 	}
 
